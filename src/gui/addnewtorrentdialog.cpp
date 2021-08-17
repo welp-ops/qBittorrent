@@ -148,9 +148,9 @@ AddNewTorrentDialog::AddNewTorrentDialog(const BitTorrent::AddTorrentParams &inP
     connect(m_ui->doNotDeleteTorrentCheckBox, &QCheckBox::clicked, this, &AddNewTorrentDialog::doNotDeleteTorrentClicked);
     QShortcut *editHotkey = new QShortcut(Qt::Key_F2, m_ui->contentTreeView, nullptr, nullptr, Qt::WidgetShortcut);
     connect(editHotkey, &QShortcut::activated
-            , this, [this]() { m_ui->contentTreeView->renameSelectedFile(m_torrentInfo); });
+            , this, [this]() { m_ui->contentTreeView->renameSelectedFiles(m_torrentInfo); });
     connect(m_ui->contentTreeView, &QAbstractItemView::doubleClicked
-            , this, [this]() { m_ui->contentTreeView->renameSelectedFile(m_torrentInfo); });
+            , this, [this]() { m_ui->contentTreeView->renameSelectedFiles(m_torrentInfo); });
 
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setFocus();
 }
@@ -553,7 +553,7 @@ void AddNewTorrentDialog::displayContentTreeMenu(const QPoint &)
     if (selectedRows.size() == 1)
     {
         menu->addAction(UIThemeManager::instance()->getIcon("edit-rename"), tr("Rename...")
-            , this, [this]() { m_ui->contentTreeView->renameSelectedFile(m_torrentInfo); });
+            , this, [this]() { m_ui->contentTreeView->renameSelectedFiles(m_torrentInfo); });
         menu->addSeparator();
 
         QMenu *priorityMenu = menu->addMenu(tr("Priority"));
@@ -578,6 +578,9 @@ void AddNewTorrentDialog::displayContentTreeMenu(const QPoint &)
     }
     else
     {
+        menu->addAction(UIThemeManager::instance()->getIcon("edit-rename"), tr("Batch Rename...")
+                        , this, [this]() { m_ui->contentTreeView->renameSelectedFiles(m_torrentInfo); });
+        menu->addSeparator();
         menu->addAction(tr("Do not download"), menu, [applyPriorities]()
         {
             applyPriorities(BitTorrent::DownloadPriority::Ignored);
