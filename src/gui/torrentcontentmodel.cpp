@@ -33,6 +33,8 @@
 #include <QFileIconProvider>
 #include <QFileInfo>
 #include <QIcon>
+#include <QMimeData>
+#include <QSet>
 
 #if defined(Q_OS_WIN)
 #include <Windows.h>
@@ -65,6 +67,8 @@
 
 namespace
 {
+    const QString QB_DRAGNDROP_MIME = QLatin1String("application/x-qbittorrent-paths");
+
     class UnifiedFileIconProvider : public QFileIconProvider
     {
     public:
@@ -214,7 +218,6 @@ void TorrentContentModel::updateFilesProgress(const QVector<qreal> &fp)
     // XXX: Why is this necessary?
     if (m_filesIndex.size() != fp.size()) return;
 
-    emit layoutAboutToBeChanged();
     for (int i = 0; i < fp.size(); ++i)
         m_filesIndex[i]->setProgress(fp[i]);
     // Update folders progress in the tree
@@ -270,7 +273,7 @@ bool TorrentContentModel::allFiltered() const
 int TorrentContentModel::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
-        return static_cast<TorrentContentModelItem*>(parent.internalPointer())->columnCount();
+        return this->item(parent)->columnCount();
 
     return m_rootItem->columnCount();
 }
@@ -282,7 +285,7 @@ bool TorrentContentModel::setData(const QModelIndex &index, const QVariant &valu
 
     if ((index.column() == TorrentContentModelItem::COL_NAME) && (role == Qt::CheckStateRole))
     {
-        auto *item = static_cast<TorrentContentModelItem*>(index.internalPointer());
+        auto *item = this->item(index);
         qDebug("setData(%s, %d", qUtf8Printable(item->name()), value.toInt());
         if (static_cast<int>(item->priority()) != value.toInt())
         {
@@ -305,7 +308,7 @@ bool TorrentContentModel::setData(const QModelIndex &index, const QVariant &valu
     if (role == Qt::EditRole)
     {
         Q_ASSERT(index.isValid());
-        auto *item = static_cast<TorrentContentModelItem*>(index.internalPointer());
+        auto *item = this->item(index);
         switch (index.column())
         {
         case TorrentContentModelItem::COL_NAME:
@@ -324,16 +327,16 @@ bool TorrentContentModel::setData(const QModelIndex &index, const QVariant &valu
     return false;
 }
 
-TorrentContentModelItem::ItemType TorrentContentModel::itemType(const QModelIndex &index) const
+TorrentContentModelItem *TorrentContentModel::item(const QModelIndex &index) const
 {
-    return static_cast<const TorrentContentModelItem*>(index.internalPointer())->itemType();
+    return static_cast<TorrentContentModelItem *>(index.internalPointer());
 }
 
-int TorrentContentModel::getFileIndex(const QModelIndex &index)
+int TorrentContentModel::getFileIndex(const QModelIndex &index) const
 {
-    auto *item = static_cast<TorrentContentModelItem*>(index.internalPointer());
+    const TorrentContentModelItem *item = this->item(index);
     if (item->itemType() == TorrentContentModelItem::FileType)
-        return static_cast<TorrentContentModelFile*>(item)->fileIndex();
+        return static_cast<const TorrentContentModelFile*>(item)->fileIndex();
 
     Q_ASSERT(item->itemType() == TorrentContentModelItem::FileType);
     return -1;
@@ -344,7 +347,7 @@ QVariant TorrentContentModel::data(const QModelIndex &index, const int role) con
     if (!index.isValid())
         return {};
 
-    auto *item = static_cast<TorrentContentModelItem*>(index.internalPointer());
+    auto *item = this->item(index);
 
     switch (role)
     {
@@ -389,11 +392,11 @@ QVariant TorrentContentModel::data(const QModelIndex &index, const int role) con
 Qt::ItemFlags TorrentContentModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid())
-        return Qt::NoItemFlags;
+        return Qt::ItemIsDropEnabled; // TODO: can we handle top-level drops?
 
-    Qt::ItemFlags flags {Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable};
-    if (itemType(index) == TorrentContentModelItem::FolderType)
-        flags |= Qt::ItemIsAutoTristate;
+    Qt::ItemFlags flags {Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled};
+    if (item(index)->itemType() == TorrentContentModelItem::FolderType)
+        flags |= Qt::ItemIsAutoTristate | Qt::ItemIsDropEnabled;
     if (index.column() == TorrentContentModelItem::COL_PRIO)
         flags |= Qt::ItemIsEditable;
 
@@ -450,7 +453,7 @@ QModelIndex TorrentContentModel::parent(const QModelIndex &index) const
     if (!index.isValid())
         return {};
 
-    auto *childItem = static_cast<TorrentContentModelItem*>(index.internalPointer());
+    auto *childItem = this->item(index);
     if (!childItem)
         return {};
 
@@ -470,9 +473,99 @@ int TorrentContentModel::rowCount(const QModelIndex &parent) const
     if (!parent.isValid())
         parentItem = m_rootItem;
     else
-        parentItem = dynamic_cast<TorrentContentModelFolder*>(static_cast<TorrentContentModelItem*>(parent.internalPointer()));
+        parentItem = dynamic_cast<TorrentContentModelFolder*>(this->item(parent));
 
     return parentItem ? parentItem->childCount() : 0;
+}
+
+// Mime data binary format: File index, followed by stub of path that will be preserved on rename
+QMimeData *TorrentContentModel::mimeData(const QModelIndexList &indexes) const
+{
+    // folders take precedence over files in the sense that if a folder and some files inside of it
+    // are selected, the whole folder is moved and the folder structure is preserved.
+    QHash<int, QString> stubs;
+    QSet<QString> foldersProcessed;
+    std::function<void (const TorrentContentModelItem *, const QString &)> addStubs;
+    addStubs = [&stubs, &foldersProcessed, &addStubs](const TorrentContentModelItem *item, const QString &stubSoFar)
+        {
+            switch (item->itemType()) {
+            case TorrentContentModelItem::ItemType::FileType:
+            {
+                // don't override existing put there by folders
+                int fileIndex = dynamic_cast<const TorrentContentModelFile *>(item)->fileIndex();
+                if (!stubSoFar.isEmpty() || !stubs.contains(fileIndex)) {
+                    stubs.insert(fileIndex, Utils::Fs::combinePaths(stubSoFar, item->name()));
+                }
+                break;
+            }
+            case TorrentContentModelItem::ItemType::FolderType:
+            {
+                // ok to override existing put there by files
+                // if any parent folders have been processed, they take precedence
+                for (const QString &parent : Utils::Fs::parentFolders(item->path()))
+                {
+                    if (foldersProcessed.contains(parent) && stubSoFar.isEmpty())
+                        return;
+                }
+
+                for (const TorrentContentModelItem *child : dynamic_cast<const TorrentContentModelFolder *>(item)->children()) {
+                    addStubs(child, Utils::Fs::combinePaths(stubSoFar, item->name()));
+                }
+                foldersProcessed.insert(item->path());
+                break;
+            }
+            }
+        };
+    for (const QModelIndex &index : indexes) {
+        addStubs(item(index), "");
+    }
+
+    QByteArray encoded;
+    QDataStream stream(&encoded, QIODevice::WriteOnly);
+    for (int fileIndex : stubs.keys()) {
+        stream << fileIndex;
+        stream << stubs.value(fileIndex);
+    }
+    QMimeData *result = new QMimeData();
+    result->setData(QB_DRAGNDROP_MIME, encoded);
+    return result;
+}
+
+bool TorrentContentModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int, int, const QModelIndex &parent)
+{
+    if (!data->hasFormat(QB_DRAGNDROP_MIME) || action != Qt::DropAction::MoveAction)
+        return false;
+
+    const QString newParentPath = parent.isValid() ? item(parent)->path() : "";
+    QByteArray encoded = data->data(QB_DRAGNDROP_MIME);
+    QDataStream stream(&encoded, QIODevice::ReadOnly);
+
+    QVector<int> fileIndexes;
+    QVector<QString> newPaths;
+
+    while (!stream.atEnd()) {
+        int fileIndex;
+        QString stub;
+        stream >> fileIndex;
+        stream >> stub;
+        fileIndexes.push_back(fileIndex);
+        newPaths.push_back(Utils::Fs::combinePaths(newParentPath, stub));
+    }
+
+    m_torrentInfo.renameFiles(fileIndexes, newPaths);
+    relayout();
+    return true;
+}
+
+bool TorrentContentModel::canDropMimeData(const QMimeData *mimeData, Qt::DropAction, int, int, const QModelIndex &parent) const
+{
+    return !parent.isValid() // root is OK
+        || (mimeData->hasFormat(QB_DRAGNDROP_MIME) && item(parent)->itemType() == TorrentContentModelItem::FolderType);
+}
+
+Qt::DropActions TorrentContentModel::supportedDropActions() const
+{
+    return Qt::DropAction::MoveAction;
 }
 
 void TorrentContentModel::clear()
@@ -487,6 +580,7 @@ void TorrentContentModel::clear()
 void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
 {
     qDebug("setup model data called");
+    m_torrentInfo = info;
     const int filesCount = info.filesCount();
     if (filesCount <= 0)
         return;
@@ -524,6 +618,12 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
         m_filesIndex.push_back(fileItem);
     }
     emit layoutChanged();
+}
+
+void TorrentContentModel::relayout()
+{
+    clear();
+    setupModelData(m_torrentInfo);
 }
 
 void TorrentContentModel::selectAll()
