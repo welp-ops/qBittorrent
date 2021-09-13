@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2006  Christophe Dumez <chris@qbittorrent.org>
+ * Copyright (C) 2021  Welp Wazowski
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,47 +28,21 @@
 
 #pragma once
 
-#include <QStyledItemDelegate>
+#include <QWidget>
 
-#include "gui/progressbarpainter.h"
+#include "base/bittorrent/abstractfilestorage.h"
 
-class QAbstractItemModel;
-class QModelIndex;
-class QStyleOptionViewItem;
-
-class PropertiesWidget;
-
-// Defines for properties list columns
-enum PropColumn
-{
-    NAME,
-    PCSIZE,
-    PROGRESS,
-    PRIORITY,
-    REMAINING,
-    AVAILABILITY
-};
-
-class PropListDelegate final : public QStyledItemDelegate
+class TorrentContentWidget final : public QWidget
 {
     Q_OBJECT
-    Q_DISABLE_COPY_MOVE(PropListDelegate)
+    Q_DISABLE_COPY_MOVE(TorrentContentWidget)
 
 public:
-    explicit PropListDelegate(PropertiesWidget *properties);
-
-    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-
-public slots:
-    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override;
-    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-
-signals:
-    void prioritiesChanged() const;
+    explicit TorrentContentWidget(QWidget *parent = nullptr);
+    void setStorage(BitTorrent::AbstractFileStorage *fileStorage);
 
 private:
-    PropertiesWidget *m_properties;
-    ProgressBarPainter m_progressBarPainter;
+    // TODO: ensure that when the torrent is removed, the widget is removed before the abstract file
+    // storage is freed so no null reference.
+    BitTorrent::AbstractFileStorage *m_fileStorage;
 };

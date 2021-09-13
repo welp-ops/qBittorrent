@@ -78,7 +78,6 @@ public:
     static void show(const QString &source, QWidget *parent);
 
 private slots:
-    void displayContentTreeMenu(const QPoint &);
     void updateDiskSpaceLabel();
     void onSavePathChanged(const QString &newPath);
     void updateMetadata(const BitTorrent::TorrentInfo &metadata);
@@ -108,12 +107,9 @@ private:
     void showEvent(QShowEvent *event) override;
 
     Ui::AddNewTorrentDialog *m_ui;
-    TorrentContentFilterModel *m_contentModel;
-    PropListDelegate *m_contentDelegate;
     bool m_hasMetadata;
     BitTorrent::MagnetUri m_magnetURI;
     BitTorrent::TorrentInfo m_torrentInfo;
-    QByteArray m_headerState;
     int m_oldIndex;
     std::unique_ptr<TorrentFileGuard> m_torrentGuard;
     BitTorrent::AddTorrentParams m_torrentParams;

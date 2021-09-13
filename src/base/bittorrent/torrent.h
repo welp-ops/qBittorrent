@@ -196,7 +196,7 @@ namespace BitTorrent
         virtual QStringList absoluteFilePaths() const = 0;
         virtual QVector<DownloadPriority> filePriorities() const = 0;
 
-        virtual TorrentInfo info() const = 0;
+        virtual const TorrentInfo *info() const = 0;
         virtual bool isSeed() const = 0;
         virtual bool isPaused() const = 0;
         virtual bool isQueued() const = 0;

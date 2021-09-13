@@ -303,7 +303,7 @@ bool TorrentContentModel::setData(const QModelIndex &index, const QVariant &valu
             m_rootItem->recalculateProgress();
             m_rootItem->recalculateAvailability();
             emit dataChanged(this->index(0, 0), this->index((rowCount() - 1), (columnCount() - 1)));
-            emit filteredFilesChanged();
+            emit prioritiesChanged();
         }
         return true;
     }
@@ -324,6 +324,14 @@ bool TorrentContentModel::setData(const QModelIndex &index, const QVariant &valu
             return false;
         }
         emit dataChanged(index, index);
+
+        // This isn't as efficient as it could be, since prioritiesChanged will be emitted many
+        // times if a bulk operation such as "prioritize in displayed order" is executed. However,
+        // the "select all" and "select none" buttons historically emitted this signal for every
+        // item in the torrent without major performance issues.
+        if (index.column() == TorrentContentModelItem::COL_PRIO)
+            emit prioritiesChanged();
+
         return true;
     }
 
@@ -466,6 +474,8 @@ QModelIndex TorrentContentModel::parent(const QModelIndex &index) const
         return {};
 
     auto *childItem = this->citem(index);
+    if (!childItem)
+        return {};
 
     TorrentContentModelItem *parentItem = childItem->parent();
     if (parentItem == m_rootItem)
@@ -563,15 +573,8 @@ bool TorrentContentModel::dropMimeData(const QMimeData *data, Qt::DropAction act
         newPaths.push_back(Utils::Fs::combinePaths(newParentPath, stub));
     }
 
-    try
-    {
-        m_torrentInfo.renameFiles(fileIndexes, newPaths);
-    }
-    catch (const RuntimeError &error)
-    {
-        puts("error"); // TODO: create a message box? But then we need access to the GUI parent
-    }
-    relayout();
+    emit filesDropped(std::move(fileIndexes), std::move(newPaths));
+
     return true;
 }
 
@@ -612,7 +615,6 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
             }
         };
 
-    m_torrentInfo = info;
     const int filesCount = info.filesCount();
     if (filesCount <= 0)
         return;
@@ -719,11 +721,6 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
     delete oldRootItem;
 
     emit layoutChanged();
-}
-
-void TorrentContentModel::relayout()
-{
-    setupModelData(m_torrentInfo);
 }
 
 void TorrentContentModel::selectAll()

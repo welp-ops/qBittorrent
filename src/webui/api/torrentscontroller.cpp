@@ -552,7 +552,7 @@ void TorrentsController::filesAction()
         const QVector<BitTorrent::DownloadPriority> priorities = torrent->filePriorities();
         const QVector<qreal> fp = torrent->filesProgress();
         const QVector<qreal> fileAvailability = torrent->availableFileFractions();
-        const BitTorrent::TorrentInfo info = torrent->info();
+        const BitTorrent::TorrentInfo *info = torrent->info();
         for (const int index : asConst(fileIndexes))
         {
             QJsonObject fileDict =
@@ -569,7 +569,7 @@ void TorrentsController::filesAction()
                 fileName.chop(QB_EXT.size());
             fileDict[KEY_FILE_NAME] = Utils::Fs::toUniformPath(fileName);
 
-            const BitTorrent::TorrentInfo::PieceRange idx = info.filePieces(index);
+            const BitTorrent::TorrentInfo::PieceRange idx = info->filePieces(index);
             fileDict[KEY_FILE_PIECE_RANGE] = QJsonArray {idx.first(), idx.last()};
 
             if (index == 0)
@@ -594,7 +594,7 @@ void TorrentsController::pieceHashesAction()
         throw APIError(APIErrorType::NotFound);
 
     QJsonArray pieceHashes;
-    const QVector<QByteArray> hashes = torrent->info().pieceHashes();
+    const QVector<QByteArray> hashes = torrent->info()->pieceHashes();
     for (const QByteArray &hash : hashes)
         pieceHashes.append(QString(hash.toHex()));
 

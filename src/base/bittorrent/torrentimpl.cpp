@@ -804,9 +804,9 @@ QVector<DownloadPriority> TorrentImpl::filePriorities() const
     return ret;
 }
 
-TorrentInfo TorrentImpl::info() const
+const TorrentInfo *TorrentImpl::info() const
 {
-    return m_torrentInfo;
+    return &m_torrentInfo;
 }
 
 bool TorrentImpl::isPaused() const
@@ -1483,7 +1483,7 @@ void TorrentImpl::applyFirstLastPiecePriority(const bool enabled, const QVector<
 
         // Determine the priority to set
         const lt::download_priority_t newPrio = enabled ? lt::download_priority_t {7} : filePrio;
-        const TorrentInfo::PieceRange extremities = info().filePieces(index);
+        const TorrentInfo::PieceRange extremities = info()->filePieces(index);
 
         // worst case: AVI index = 1% of total file size (at the end of the file)
         const int nNumPieces = std::ceil(fileSize(index) * 0.01 / pieceLength());
@@ -1632,6 +1632,11 @@ void TorrentImpl::renameFile(const int index, const QString &path)
     m_oldPath[lt::file_index_t {index}].push_back(oldPath);
     ++m_renameCount;
     m_nativeHandle.rename_file(lt::file_index_t {index}, Utils::Fs::toNativePath(path).toStdString());
+}
+
+void TorrentImpl::onRenameComplete(EventTrigger handler)
+{
+    m_moveFinishedTriggers.append(handler);
 }
 
 void TorrentImpl::handleStateUpdate(const lt::torrent_status &nativeStatus)
@@ -2088,7 +2093,7 @@ void TorrentImpl::adjustActualSavePath()
 void TorrentImpl::adjustActualSavePath_impl()
 {
     const bool needUseTempDir = useTempPath();
-    const QDir tempDir {m_session->torrentTempPath(info())};
+    const QDir tempDir {m_session->torrentTempPath(*info())};
     const QDir currentDir {actualStorageLocation()};
     const QDir targetDir {needUseTempDir ? tempDir : QDir {savePath()}};
 
@@ -2300,10 +2305,10 @@ QVector<qreal> TorrentImpl::availableFileFractions() const
 
     QVector<qreal> res;
     res.reserve(filesCount);
-    const TorrentInfo info = this->info();
+    const TorrentInfo *info = this->info();
     for (int i = 0; i < filesCount; ++i)
     {
-        const TorrentInfo::PieceRange filePieces = info.filePieces(i);
+        const TorrentInfo::PieceRange filePieces = info->filePieces(i);
 
         int availablePieces = 0;
         for (const int piece : filePieces)

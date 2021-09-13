@@ -82,11 +82,10 @@ public:
     Qt::DropActions supportedDropActions() const override;
     void clear();
     void setupModelData(const BitTorrent::TorrentInfo &info);
-    // recalculate the layout using the torrent info last passed to setupModelData
-    void relayout();
 
 signals:
-    void filteredFilesChanged();
+    void prioritiesChanged();
+    void filesDropped(QVector<int> indexes, QVector<QString> names);
 
 public slots:
     void selectAll();
@@ -99,5 +98,4 @@ private:
     TorrentContentModelFolder *m_rootItem;
     QVector<TorrentContentModelFile *> m_filesIndex;
     QFileIconProvider *m_fileIconProvider;
-    BitTorrent::TorrentInfo m_torrentInfo;
 };

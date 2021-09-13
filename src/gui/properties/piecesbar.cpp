@@ -52,15 +52,15 @@ namespace
     class PieceIndexToImagePos
     {
     public:
-        PieceIndexToImagePos(const BitTorrent::TorrentInfo &torrentInfo, const QImage &image)
+        PieceIndexToImagePos(const BitTorrent::TorrentInfo *torrentInfo, const QImage &image)
             : m_bytesPerPixel
-            {((image.width() > 0) && (torrentInfo.totalSize() >= image.width()))
-                ? torrentInfo.totalSize() / image.width() : -1}
+            {((image.width() > 0) && (torrentInfo->totalSize() >= image.width()))
+                ? torrentInfo->totalSize() / image.width() : -1}
             , m_torrentInfo {torrentInfo}
         {
             if ((m_bytesPerPixel > 0) && (m_bytesPerPixel < 10))
                 qDebug() << "PieceIndexToImagePos: torrent size is too small for correct computaions."
-                         << "Torrent size =" << torrentInfo.totalSize() << "Image width = " << image.width();
+                         << "Torrent size =" << torrentInfo->totalSize() << "Image width = " << image.width();
         }
 
         ImageRange imagePos(const BitTorrent::TorrentInfo::PieceRange &pieces) const
@@ -69,20 +69,20 @@ namespace
                 return {0, 0};
 
             // the type conversion is used to prevent integer overflow with torrents of 2+ GiB size
-            const qlonglong pieceLength = m_torrentInfo.pieceLength();
+            const qlonglong pieceLength = m_torrentInfo->pieceLength();
             return makeInterval<ImageRange::IndexType>(
                 (pieces.first() * pieceLength) / m_bytesPerPixel,
-                (pieces.last() * pieceLength + m_torrentInfo.pieceLength(pieces.last()) - 1) / m_bytesPerPixel);
+                (pieces.last() * pieceLength + m_torrentInfo->pieceLength(pieces.last()) - 1) / m_bytesPerPixel);
         }
 
         int pieceIndex(int imagePos) const
         {
-            return m_bytesPerPixel < 0 ? 0 : (imagePos * m_bytesPerPixel + m_bytesPerPixel / 2) / m_torrentInfo.pieceLength();
+            return m_bytesPerPixel < 0 ? 0 : (imagePos * m_bytesPerPixel + m_bytesPerPixel / 2) / m_torrentInfo->pieceLength();
         }
 
     private:
         const qlonglong m_bytesPerPixel; // how many bytes of the torrent are squeezed into a bar's pixel
-        const BitTorrent::TorrentInfo m_torrentInfo;
+        const BitTorrent::TorrentInfo *m_torrentInfo;
     };
 
     class DetailedTooltipRenderer
@@ -262,7 +262,7 @@ void PiecesBar::showToolTip(const QHelpEvent *e)
             stream << "<html><body>";
             PieceIndexToImagePos transform {m_torrent->info(), m_image};
             int pieceIndex = transform.pieceIndex(imagePos);
-            const QVector<int> files {m_torrent->info().fileIndicesForPiece(pieceIndex)};
+            const QVector<int> files {m_torrent->info()->fileIndicesForPiece(pieceIndex)};
 
             QString tooltipTitle;
             if (files.count() > 1)
@@ -271,7 +271,7 @@ void PiecesBar::showToolTip(const QHelpEvent *e)
             }
             else
             {
-                if (m_torrent->info().fileSize(files.front()) == m_torrent->info().pieceLength(pieceIndex))
+                if (m_torrent->info()->fileSize(files.front()) == m_torrent->info()->pieceLength(pieceIndex))
                     tooltipTitle = tr("File in this piece");
                 else
                     tooltipTitle = tr("File in these pieces");
@@ -281,8 +281,8 @@ void PiecesBar::showToolTip(const QHelpEvent *e)
 
             for (int f : files)
             {
-                const QString filePath {m_torrent->info().filePath(f)};
-                renderer(Utils::Misc::friendlyUnit(m_torrent->info().fileSize(f)), filePath);
+                const QString filePath {m_torrent->info()->filePath(f)};
+                renderer(Utils::Misc::friendlyUnit(m_torrent->info()->fileSize(f)), filePath);
             }
             stream << "</body></html>";
         }
@@ -309,10 +309,10 @@ void PiecesBar::highlightFile(int imagePos)
     PieceIndexToImagePos transform {m_torrent->info(), m_image};
 
     int pieceIndex = transform.pieceIndex(imagePos);
-    QVector<int> fileIndices {m_torrent->info().fileIndicesForPiece(pieceIndex)};
+    QVector<int> fileIndices {m_torrent->info()->fileIndicesForPiece(pieceIndex)};
     if (fileIndices.count() == 1)
     {
-        BitTorrent::TorrentInfo::PieceRange filePieces = m_torrent->info().filePieces(fileIndices.first());
+        BitTorrent::TorrentInfo::PieceRange filePieces = m_torrent->info()->filePieces(fileIndices.first());
 
         ImageRange imageRange = transform.imagePos(filePieces);
         QRect newHighlightedRegion {imageRange.first(), 0, imageRange.size(), m_image.height()};

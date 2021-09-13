@@ -573,7 +573,7 @@ void SyncController::torrentPeersAction()
             {KEY_PEER_FLAGS, pi.flags()},
             {KEY_PEER_FLAGS_DESCRIPTION, pi.flagsDescription()},
             {KEY_PEER_RELEVANCE, pi.relevance()},
-            {KEY_PEER_FILES, torrent->info().filesForPiece(pi.downloadingPieceIndex()).join('\n')}
+            {KEY_PEER_FILES, torrent->info()->filesForPiece(pi.downloadingPieceIndex()).join('\n')}
         };
 
         if (resolvePeerCountries)
