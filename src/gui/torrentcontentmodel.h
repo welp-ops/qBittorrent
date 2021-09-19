@@ -85,7 +85,7 @@ public:
 
 signals:
     void prioritiesChanged();
-    void filesDropped(QVector<int> indexes, QVector<QString> names);
+    void filesDropped(const BitTorrent::AbstractFileStorage::RenameList &renameList);
 
 public slots:
     void selectAll();

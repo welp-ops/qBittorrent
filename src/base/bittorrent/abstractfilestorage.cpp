@@ -56,9 +56,11 @@ QVector<int> BitTorrent::AbstractFileStorage::folderIndexes(const QString &folde
     return result;
 }
 
-void BitTorrent::AbstractFileStorage::renameFiles(const QVector<int> &indexes
-                                                  , const QVector<QString> &newPaths)
+void BitTorrent::AbstractFileStorage::renameFiles(const RenameList &renames)
 {
+    auto indexes = renames.keys();
+    auto newPaths = renames.values();
+
     QSet<QString> oldAndFolderNames; // without QB_EXT
     for (int i = 0; i < filesCount(); i++)
     {
@@ -89,11 +91,12 @@ void BitTorrent::AbstractFileStorage::renameFiles(const QVector<int> &indexes
         const QString newNameWithExtension = Utils::Fs::hasQbExtension(filePath(indexes[i]))
             ? Utils::Fs::ensureQbExtension(newPaths[i])
             : newPaths[i];
-        renameFile(indexes[i], newNameWithExtension);
+        if (filePath(i) != newNameWithExtension)
+            renameFile(indexes[i], newNameWithExtension);
     }
 }
 
-void BitTorrent::AbstractFileStorage::renameFile(const QString &oldPath, const QString &newPath)
+BitTorrent::AbstractFileStorage::RenameList BitTorrent::AbstractFileStorage::renameFile(const QString &oldPath, const QString &newPath)
 {
     if (!Utils::Fs::isValidFileSystemName(oldPath, true))
         throw RuntimeError {tr("The old path is invalid: '%1'.").arg(oldPath)};
@@ -114,10 +117,10 @@ void BitTorrent::AbstractFileStorage::renameFile(const QString &oldPath, const Q
     if (renamingFileIndex < 0)
         throw RuntimeError {tr("No such file: '%1'.").arg(oldFilePath)};
 
-    renameFileChecked(renamingFileIndex, newPath);
+    return renameFileChecked(renamingFileIndex, newPath);
 }
 
-void BitTorrent::AbstractFileStorage::renameFileChecked(int index, const QString &newPath)
+BitTorrent::AbstractFileStorage::RenameList BitTorrent::AbstractFileStorage::renameFileChecked(int index, const QString &newPath)
 {
     if (!Utils::Fs::isValidFileSystemName(newPath, true))
         throw RuntimeError {tr("The new path is invalid: '%1'.").arg(newPath)};
@@ -126,10 +129,12 @@ void BitTorrent::AbstractFileStorage::renameFileChecked(int index, const QString
     if (newFilePath.endsWith(QLatin1Char {'/'}))
         throw RuntimeError {tr("Invalid file path: '%1'.").arg(newFilePath)};
 
-    renameFiles(QVector<int>{index}, QVector<QString>{newFilePath});
+    RenameList result;
+    result.insert(index, newFilePath);
+    return result;
 }
 
-void BitTorrent::AbstractFileStorage::renameFolder(const QString &oldPath, const QString &newPath)
+BitTorrent::AbstractFileStorage::RenameList BitTorrent::AbstractFileStorage::renameFolder(const QString &oldPath, const QString &newPath)
 {
     if (!Utils::Fs::isValidFileSystemName(oldPath, true))
         throw RuntimeError {tr("The old path is invalid: '%1'.").arg(oldPath)};
@@ -150,22 +155,20 @@ void BitTorrent::AbstractFileStorage::renameFolder(const QString &oldPath, const
     if (renamingFileIndexes.isEmpty())
         throw RuntimeError {tr("No such folder: '%1'.").arg(oldFolderPath)};
 
-    QVector<QString> renamingFilePaths;
-    for (int idx : renamingFileIndexes) {
-        renamingFilePaths.push_back(filePath(idx));
-    }
     std::function<QString (const QString &)> nameTransformer;
     nameTransformer = [newFolderPath, oldFolderPath](const QString &filePath) -> QString {
         return newFolderPath + filePath.mid(oldFolderPath.size());
     };
+
+    RenameList result;
     QVector<QString> newFilePaths;
-    for (const QString &oldFilePath : renamingFilePaths)
+    for (int idx : renamingFileIndexes)
     {
         bool ok;
-        newFilePaths.push_back(Utils::Fs::renamePath(oldFilePath, nameTransformer, true, &ok));
+        result.insert(idx, Utils::Fs::renamePath(filePath(idx), nameTransformer, true, &ok));
         Q_ASSERT(ok);
-        if (!ok) return;
+        if (!ok) return RenameList();
     }
     
-    renameFiles(renamingFileIndexes, newFilePaths);
+    return result;
 }
