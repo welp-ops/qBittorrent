@@ -764,6 +764,7 @@ int TorrentImpl::seedingTimeLimit() const
 
 QString TorrentImpl::filePath(int index) const
 {
+    Q_ASSERT(0 <= index && index < filesCount());
     return m_torrentInfo.filePath(index);
 }
 

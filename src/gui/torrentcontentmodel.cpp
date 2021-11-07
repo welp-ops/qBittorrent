@@ -412,7 +412,7 @@ QVariant TorrentContentModel::data(const QModelIndex &index, const int role) con
 Qt::ItemFlags TorrentContentModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid())
-        return Qt::ItemIsDropEnabled; // TODO: can we handle top-level drops?
+        return Qt::ItemIsDropEnabled;
 
     Qt::ItemFlags flags {Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled};
     if (citem(index)->itemType() == TorrentContentModelItem::FolderType)
@@ -508,12 +508,14 @@ QMimeData *TorrentContentModel::mimeData(const QModelIndexList &indexes) const
     std::function<void (const TorrentContentModelItem *, const QString &)> addStubs;
     addStubs = [&stubs, &foldersProcessed, &addStubs](const TorrentContentModelItem *item, const QString &stubSoFar)
         {
-            switch (item->itemType()) {
+            switch (item->itemType())
+            {
             case TorrentContentModelItem::ItemType::FileType:
             {
                 // don't override existing put there by folders
                 int fileIndex = dynamic_cast<const TorrentContentModelFile *>(item)->fileIndex();
-                if (!stubSoFar.isEmpty() || !stubs.contains(fileIndex)) {
+                if (!stubSoFar.isEmpty() || !stubs.contains(fileIndex))
+                {
                     stubs.insert(fileIndex, Utils::Fs::combinePaths(stubSoFar, item->name()));
                 }
                 break;
@@ -528,7 +530,8 @@ QMimeData *TorrentContentModel::mimeData(const QModelIndexList &indexes) const
                         return;
                 }
 
-                for (const TorrentContentModelItem *child : dynamic_cast<const TorrentContentModelFolder *>(item)->children()) {
+                for (const TorrentContentModelItem *child : dynamic_cast<const TorrentContentModelFolder *>(item)->children())
+                {
                     addStubs(child, Utils::Fs::combinePaths(stubSoFar, item->name()));
                 }
                 foldersProcessed.insert(item->path());
@@ -536,13 +539,15 @@ QMimeData *TorrentContentModel::mimeData(const QModelIndexList &indexes) const
             }
             }
         };
-    for (const QModelIndex &index : indexes) {
+    for (const QModelIndex &index : indexes)
+    {
         addStubs(citem(index), "");
     }
 
     QByteArray encoded;
     QDataStream stream(&encoded, QIODevice::WriteOnly);
-    for (int fileIndex : stubs.keys()) {
+    for (int fileIndex : stubs.keys())
+    {
         stream << fileIndex;
         stream << stubs.value(fileIndex);
     }
@@ -620,8 +625,8 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
 
     bool haveFileIndexes = !m_filesIndex.isEmpty();
 
-    // Map from each file and folder to the model index, so that we can call ChangePersistentIndex appropriately later
-    // TODO: should we store pointers to the indexes instead of directly?
+    // Map from each file and folder to the model index, so that we can call ChangePersistentIndex
+    // appropriately later
     QVector<QModelIndex> oldFileModelIndexes;
     QMap<QString, QModelIndex> oldFolderModelIndexes;
     oldFileModelIndexes.resize(filesCount);
