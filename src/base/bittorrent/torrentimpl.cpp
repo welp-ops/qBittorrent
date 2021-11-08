@@ -415,7 +415,22 @@ QString TorrentImpl::rootPath(bool actual) const
     if (!hasMetadata())
         return {};
 
-    const QString firstFilePath = filePath(0);
+    // first file not relocated out of the save location. Since rootPath is used to remove empty
+    // folders after deleting a torrent, it would be more correct to return a list of paths, then
+    // remove all of them, even if out-of-tree
+    QString firstFilePath;
+    for (int i = 0; i < filesCount(); i++)
+    {
+        if (QDir::isRelativePath(filePath(i)))
+        {
+            firstFilePath = filePath(i);
+            break;
+        }
+    }
+    // if all the paths are absolute, just return the first one, somewhat misleadingly
+    if (firstFilePath.isEmpty())
+        return filePath(0);
+
     const int slashIndex = firstFilePath.indexOf('/');
     if (slashIndex >= 0)
         return QDir(savePath(actual)).absoluteFilePath(firstFilePath.left(slashIndex));
@@ -429,7 +444,7 @@ QString TorrentImpl::contentPath(const bool actual) const
         return {};
 
     if (filesCount() == 1)
-        return QDir(savePath(actual)).absoluteFilePath(filePath(0));
+        return absoluteFilePath(actual, 0);
 
     if (m_torrentInfo.hasRootFolder())
         return rootPath(actual);
@@ -768,6 +783,15 @@ QString TorrentImpl::filePath(int index) const
     return m_torrentInfo.filePath(index);
 }
 
+QString TorrentImpl::absoluteFilePath(bool actual, int index) const {
+    if (!hasMetadata())
+        return "";
+    if (QDir::isAbsolutePath(filePath(index)))
+        return filePath(index);
+    else
+        return Utils::Fs::expandPathAbs(QDir(savePath(actual)).absoluteFilePath(filePath(index)));
+}
+
 QString TorrentImpl::fileName(int index) const
 {
     if (!hasMetadata()) return {};
@@ -777,19 +801,6 @@ QString TorrentImpl::fileName(int index) const
 qlonglong TorrentImpl::fileSize(int index) const
 {
     return m_torrentInfo.fileSize(index);
-}
-
-// Return a list of absolute paths corresponding
-// to all files in a torrent
-QStringList TorrentImpl::absoluteFilePaths() const
-{
-    if (!hasMetadata()) return {};
-
-    const QDir saveDir(savePath(true));
-    QStringList res;
-    for (int i = 0; i < filesCount(); ++i)
-        res << Utils::Fs::expandPathAbs(saveDir.absoluteFilePath(filePath(i)));
-    return res;
 }
 
 QVector<DownloadPriority> TorrentImpl::filePriorities() const

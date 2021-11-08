@@ -36,6 +36,7 @@
 #include <QIcon>
 #include <QMimeData>
 #include <QSet>
+#include <QDir>
 
 #if defined(Q_OS_WIN)
 #include <Windows.h>
@@ -376,6 +377,8 @@ QVariant TorrentContentModel::data(const QModelIndex &index, const int role) con
             if (index.column() != TorrentContentModelItem::COL_NAME)
                 return {};
 
+            if (item->isRelocatedLabel())
+                return UIThemeManager::instance()->getIcon("drive-harddisk"); // TODO: is this the best icon?
             if (item->itemType() == TorrentContentModelItem::FolderType)
                 return m_fileIconProvider->icon(QFileIconProvider::Folder);
             return m_fileIconProvider->icon(QFileInfo(item->name()));
@@ -414,7 +417,9 @@ Qt::ItemFlags TorrentContentModel::flags(const QModelIndex &index) const
     if (!index.isValid())
         return Qt::ItemIsDropEnabled;
 
-    Qt::ItemFlags flags {Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled};
+    Qt::ItemFlags flags {Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled};
+    if (citem(index)->isFsItem())
+        flags |= Qt::ItemIsSelectable;
     if (citem(index)->itemType() == TorrentContentModelItem::FolderType)
         flags |= Qt::ItemIsAutoTristate | Qt::ItemIsDropEnabled;
     if (index.column() == TorrentContentModelItem::COL_PRIO)
@@ -629,12 +634,14 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
     // appropriately later
     QVector<QModelIndex> oldFileModelIndexes;
     QMap<QString, QModelIndex> oldFolderModelIndexes;
+    QModelIndex oldRelocatedLabelIndex;
     oldFileModelIndexes.resize(filesCount);
     std::function<void (const QModelIndex &parent)> addIndexes;
-    // TODO: when adding relocate, we'll need to handle the folder name of the root differently
-    addIndexes = [this, &oldFileModelIndexes, &oldFolderModelIndexes, &addIndexes](const QModelIndex &parent)
+    addIndexes = [this, &oldFileModelIndexes, &oldFolderModelIndexes, &addIndexes, &oldRelocatedLabelIndex](const QModelIndex &parent)
         {
             TorrentContentModelItem *item = this->item(parent);
+
+
             switch (item->itemType())
             {
             case TorrentContentModelItem::FileType:
@@ -645,10 +652,15 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
             break;
             case TorrentContentModelItem::FolderType:
             {
-                if (parent.isValid())
-                    oldFolderModelIndexes.insert(item->path(), parent);
                 for (int i = 0; i < this->rowCount(parent); i++) {
                     addIndexes(this->index(i, 0, parent));
+                }
+
+                if (item->isFsItem())
+                {
+                    oldFolderModelIndexes.insert(item->path(), parent);
+                } else if (item->isRelocatedLabel()) {
+                    oldRelocatedLabelIndex = parent;
                 }
             }
             break;
@@ -664,12 +676,37 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
     initializeRootItem();
     m_filesIndex.resize(filesCount);
 
+    // If we do not need a relocate label, then we need to update the existing relocate label to
+    // null at the end to delete it.
+    bool didCreateRelocateLabel = false;
+
     // Iterate over files
     for (int i = 0; i < filesCount; ++i)
     {
+        const QString path = Utils::Fs::toUniformPath(info.filePath(i));
         QModelIndex currentFolderIndex;
         TorrentContentModelFolder *currentFolderItem = dynamic_cast<TorrentContentModelFolder *>(item(currentFolderIndex));
-        const QString path = Utils::Fs::toUniformPath(info.filePath(i));
+
+        // ensure the Relocated Files section exists
+        if (QDir::isAbsolutePath(info.filePath(i)))
+        {
+            auto rootChildren = currentFolderItem->children();
+            auto relocatedIt = std::find_if(rootChildren.cbegin(), rootChildren.cend(),
+                                            [](const TorrentContentModelItem *item) -> bool {
+                                                return item->isRelocatedLabel();
+                                            });
+            if (relocatedIt == rootChildren.cend())
+            {
+                auto *newRelocatedLabel = makeRelocatedLabel(tr("Relocated Files"), currentFolderItem);
+                currentFolderItem->appendChild(newRelocatedLabel);
+            }
+            int relocatedRow = relocatedIt - rootChildren.cbegin();
+            currentFolderIndex = index(relocatedRow, 0, currentFolderIndex); // currentFolderIndex sholud be null
+            currentFolderItem = dynamic_cast<TorrentContentModelFolder *>(item(currentFolderIndex));
+
+            changePersistentRowIndexes(oldRelocatedLabelIndex, currentFolderIndex);
+            didCreateRelocateLabel = true;
+        }
 
         // Iterate of parts of the path to create necessary folders
         QVector<QString> pathFolders = Utils::Fs::parentFolders(path);
@@ -680,7 +717,8 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
             auto currentFolderChildren = currentFolderItem->children();
             auto childFolderIt = std::find_if(currentFolderChildren.cbegin(), currentFolderChildren.cend(),
                                               [&parentFolderName](const TorrentContentModelItem *item) -> bool {
-                                                  return item->name() == parentFolderName;
+                                                  return item->isFsItem()
+                                                      && item->name() == parentFolderName;
                                               });
             int childFolderRow = childFolderIt - currentFolderChildren.cbegin();
             if (childFolderIt == currentFolderChildren.cend())
@@ -693,7 +731,8 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
             currentFolderItem = dynamic_cast<TorrentContentModelFolder *>(item(currentFolderIndex));
 
             auto oldIndexIt = oldFolderModelIndexes.constFind(parentFolderPath);
-            if (oldIndexIt != oldFolderModelIndexes.cend()) {
+            if (oldIndexIt != oldFolderModelIndexes.cend())
+            {
                 // qDebug("Changing folder index");
                 Q_ASSERT(oldIndexIt->isValid());
                 Q_ASSERT(currentFolderIndex.isValid());
@@ -706,7 +745,8 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
         TorrentContentModelFile *fileItem = new TorrentContentModelFile(info.fileName(i), info.fileSize(i), currentFolderItem, i);
         currentFolderItem->appendChild(fileItem);
         m_filesIndex[i] = fileItem;
-        if (haveFileIndexes) {
+        if (haveFileIndexes)
+        {
             QModelIndex oldFileIndex = oldFileModelIndexes[i];
             QModelIndex newFileIndex = index(currentFolderItem->childCount() - 1, 0, currentFolderIndex);
             Q_ASSERT(oldFileIndex.isValid());
@@ -716,9 +756,14 @@ void TorrentContentModel::setupModelData(const BitTorrent::TorrentInfo &info)
     }
 
     // remove deleted folders
-    for (const QString &folderName : oldFolderModelIndexes.keys()) {
+    for (const QString &folderName : oldFolderModelIndexes.keys())
+    {
         Q_ASSERT(oldFolderModelIndexes[folderName].isValid());
         changePersistentRowIndexes(oldFolderModelIndexes[folderName], QModelIndex());
+    }
+    if (!didCreateRelocateLabel)
+    {
+        changePersistentRowIndexes(oldRelocatedLabelIndex, {});
     }
 
     delete oldRootItem;

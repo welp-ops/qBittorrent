@@ -92,6 +92,9 @@ namespace Utils::Fs
 
     QString tempPath();
 
+    // true when the filesystem starts absolute paths with a slash.
+    bool absolutePathsStartWithSlash();
+
 #if !defined Q_OS_HAIKU
     bool isNetworkFileSystem(const QString &path);
 #endif

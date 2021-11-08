@@ -637,8 +637,7 @@ bool ContentWidget::canWrapSelected() const
         return false;
     for (const QModelIndex &idx : selectedRows)
     {
-        if (Utils::Fs::folderName(m_filterModel->item(idx)->path())
-            != Utils::Fs::folderName(m_filterModel->item(selectedRows[0])->path()))
+        if (idx.parent() != selectedRows[0].parent())
             return false;
     }
     return true;
@@ -649,7 +648,7 @@ void ContentWidget::wrapSelected()
     Q_ASSERT(canWrapSelected());
 
     bool ok;
-    // my rapper name is Lil Welp
+    // my wrapper name is Lil Welp
     const QString enteredWrapperName = AutoExpandableDialog::getText(this, tr("Creating directory"), tr("New directory name:"), QLineEdit::Normal, {}, &ok);
     const QString wrapperName = Utils::Fs::toNativePath(enteredWrapperName)
         .replace(QRegularExpression("^/|/$"), "");
@@ -733,10 +732,9 @@ QString ContentWidget::getFullPath(const QModelIndex &index) const
     }
 
     // folder type
-    const QModelIndex nameIndex {index.sibling(index.row(), TorrentContentModelItem::COL_NAME)};
-    QString folderPath {nameIndex.data().toString()};
-    for (QModelIndex modelIdx = m_filterModel->parent(nameIndex); modelIdx.isValid(); modelIdx = modelIdx.parent())
-        folderPath.prepend(modelIdx.data().toString() + '/');
+    const QString folderPath = m_filterModel->item(index)->path();
+    if (QDir::isAbsolutePath(folderPath))
+        return folderPath;
 
     const QDir saveDir {m_torrent->savePath(true)};
     const QString fullPath {Utils::Fs::expandPath(saveDir.absoluteFilePath(folderPath))};

@@ -193,7 +193,7 @@ namespace BitTorrent
         virtual qreal ratioLimit() const = 0;
         virtual int seedingTimeLimit() const = 0;
 
-        virtual QStringList absoluteFilePaths() const = 0;
+        virtual QString absoluteFilePath(bool actual, int index) const = 0;
         virtual QVector<DownloadPriority> filePriorities() const = 0;
 
         virtual const TorrentInfo *info() const = 0;
