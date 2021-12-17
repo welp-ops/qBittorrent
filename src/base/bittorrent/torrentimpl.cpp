@@ -1681,8 +1681,18 @@ void TorrentImpl::handleMoveStorageJobFinished(const bool hasOutstandingJob)
             updateStatus();
         }
 
-        while ((m_renameCount == 0) && !m_moveFinishedTriggers.isEmpty())
-            m_moveFinishedTriggers.takeFirst()();
+        callMoveFinishedTriggers();
+    }
+}
+
+void TorrentImpl::callMoveFinishedTriggers()
+{
+    if (!isMoveInProgress() && m_renameCount == 0)
+    {
+        while (!m_moveFinishedTriggers.isEmpty())
+            m_moveFinishedTriggers.takeFirst()(m_renameErrors);
+
+        m_renameErrors = false;
     }
 }
 
@@ -1771,8 +1781,8 @@ void TorrentImpl::handleTorrentFinishedAlert(const lt::torrent_finished_alert *p
     if (isMoveInProgress() || (m_renameCount > 0))
     {
         if (recheckTorrentsOnCompletion)
-            m_moveFinishedTriggers.append([this]() { forceRecheck(); });
-        m_moveFinishedTriggers.append([this]() { m_session->handleTorrentFinished(this); });
+            m_moveFinishedTriggers.append([this](bool) { forceRecheck(); });
+        m_moveFinishedTriggers.append([this](bool) { m_session->handleTorrentFinished(this); });
     }
     else
     {
@@ -1914,14 +1924,14 @@ void TorrentImpl::handleFileRenamedAlert(const lt::file_renamed_alert *p)
     }
 
     --m_renameCount;
-    while (!isMoveInProgress() && (m_renameCount == 0) && !m_moveFinishedTriggers.isEmpty())
-        m_moveFinishedTriggers.takeFirst()();
+    callMoveFinishedTriggers();
 
     m_session->handleTorrentNeedSaveResumeData(this);
 }
 
 void TorrentImpl::handleFileRenameFailedAlert(const lt::file_rename_failed_alert *p)
 {
+    m_renameErrors = true;
     LogMsg(tr("File rename failed. Torrent: \"%1\", file: \"%2\", reason: \"%3\"")
         .arg(name(), filePath(toLTUnderlyingType(p->index))
              , QString::fromLocal8Bit(p->error.message().c_str())), Log::WARNING);
@@ -1931,8 +1941,7 @@ void TorrentImpl::handleFileRenameFailedAlert(const lt::file_rename_failed_alert
         m_oldPath.remove(p->index);
 
     --m_renameCount;
-    while (!isMoveInProgress() && (m_renameCount == 0) && !m_moveFinishedTriggers.isEmpty())
-        m_moveFinishedTriggers.takeFirst()();
+    callMoveFinishedTriggers();
 
     m_session->handleTorrentNeedSaveResumeData(this);
 }
@@ -2017,9 +2026,6 @@ void TorrentImpl::handleAlert(const lt::alert *a)
     case lt::file_completed_alert::alert_type:
         handleFileCompletedAlert(static_cast<const lt::file_completed_alert*>(a));
         break;
-    case lt::file_error_alert::alert_type:
-        handleFileErrorAlert(static_cast<const lt::file_error_alert*>(a));
-        break;
     case lt::torrent_finished_alert::alert_type:
         handleTorrentFinishedAlert(static_cast<const lt::torrent_finished_alert*>(a));
         break;
@@ -2055,6 +2061,9 @@ void TorrentImpl::handleAlert(const lt::alert *a)
         break;
     case lt::performance_alert::alert_type:
         handlePerformanceAlert(static_cast<const lt::performance_alert*>(a));
+        break;
+    default:
+        qDebug("Received an unknown alert: %s", a->what());
         break;
     }
 }
@@ -2099,7 +2108,7 @@ void TorrentImpl::adjustActualSavePath()
     if (!isMoveInProgress())
         adjustActualSavePath_impl();
     else
-        m_moveFinishedTriggers.append([this]() { adjustActualSavePath_impl(); });
+        m_moveFinishedTriggers.append([this](bool) { adjustActualSavePath_impl(); });
 }
 
 void TorrentImpl::adjustActualSavePath_impl()
@@ -2118,7 +2127,7 @@ void TorrentImpl::adjustActualSavePath_impl()
             // torrent without root folder still has it in its temporary save path
             // so its temp path isn't equal to temp path root
             const QString currentDirPath = currentDir.absolutePath();
-            m_moveFinishedTriggers.append([currentDirPath]
+            m_moveFinishedTriggers.append([currentDirPath](bool)
             {
                 qDebug() << "Removing torrent temp folder:" << currentDirPath;
                 Utils::Fs::smartRemoveEmptyFolderTree(currentDirPath);
